@@ -1,0 +1,12 @@
+node_modules
+dist
+*.local
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.log
+
+# 原始素材包：assets 已合并进 public/，避免重复提交大文件
+reference/public/
+

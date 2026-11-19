@@ -1,0 +1,23 @@
+@font-face {
+  font-family: 'Noto Serif SC';
+  src: url('/assets/xiangqi/NotoSerifSC.ttf') format('truetype');
+  font-weight: 400 700;
+  font-display: swap;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  background: #f5efe0;
+  color: #3a2f22;
+}

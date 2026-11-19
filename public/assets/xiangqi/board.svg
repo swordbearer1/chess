@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 660" role="img" aria-labelledby="title">
+  <title id="title">中国象棋棋盘</title>
+  <rect x="1" y="1" width="598" height="658" rx="14" fill="#F2E4C8" stroke="#B89C6F" stroke-width="2"/>
+  <rect x="53" y="53" width="494" height="554" fill="none" stroke="#8A6B48" stroke-width="1.25"/>
+  <g fill="none" stroke="#5C4735" stroke-width="1.5">
+    <path d="M60 60H540V600H60Z
+             M60 120H540 M60 180H540 M60 240H540 M60 300H540
+             M60 360H540 M60 420H540 M60 480H540 M60 540H540"/>
+    <path d="M120 60V300 M180 60V300 M240 60V300 M300 60V300
+             M360 60V300 M420 60V300 M480 60V300
+             M120 360V600 M180 360V600 M240 360V600 M300 360V600
+             M360 360V600 M420 360V600 M480 360V600"/>
+    <path d="M240 60L360 180 M360 60L240 180 M240 480L360 600 M360 480L240 600"/>
+  </g>
+  <defs>
+    <path id="left-mark" d="M-13 -5H-5V-13 M-13 5H-5V13"/>
+    <path id="right-mark" d="M13 -5H5V-13 M13 5H5V13"/>
+    <path id="full-mark" d="M-13 -5H-5V-13 M-13 5H-5V13 M13 -5H5V-13 M13 5H5V13"/>
+  </defs>
+  <g fill="none" stroke="#765B41" stroke-width="1.25">
+    <use href="#full-mark" x="120" y="180"/><use href="#full-mark" x="480" y="180"/>
+    <use href="#right-mark" x="60" y="240"/><use href="#full-mark" x="180" y="240"/>
+    <use href="#full-mark" x="300" y="240"/><use href="#full-mark" x="420" y="240"/>
+    <use href="#left-mark" x="540" y="240"/>
+    <use href="#right-mark" x="60" y="420"/><use href="#full-mark" x="180" y="420"/>
+    <use href="#full-mark" x="300" y="420"/><use href="#full-mark" x="420" y="420"/>
+    <use href="#left-mark" x="540" y="420"/>
+    <use href="#full-mark" x="120" y="480"/><use href="#full-mark" x="480" y="480"/>
+  </g>
+  <g fill="#5C4735" text-anchor="middle" font-family="'Noto Serif SC', SimSun, serif" font-size="26" font-weight="600" letter-spacing="6">
+    <text x="180" y="339">楚河</text>
+    <text x="420" y="339">汉界</text>
+  </g>
+</svg>
