@@ -1,5 +1,5 @@
-import { searchBestMove } from './search'
-import type { Move, Position } from '../chess'
+import { searchBestMove, type SearchResult } from './search'
+import type { Position } from '../chess'
 
 interface WorkerCtx {
   postMessage(message: unknown): void
@@ -9,27 +9,27 @@ interface WorkerCtx {
 interface SearchRequest {
   gameId: number
   position: Position
-  depth: number
+  maxDepth: number
+  timeBudgetMs: number
 }
 
 interface SearchResponse {
   gameId: number
-  move: Move | null
+  result?: SearchResult
   error?: string
 }
 
 const ctx = self as unknown as WorkerCtx
 
 ctx.onmessage = (event: MessageEvent) => {
-  const { gameId, position, depth } = event.data as SearchRequest
+  const { gameId, position, maxDepth, timeBudgetMs } = event.data as SearchRequest
   try {
-    const move = searchBestMove(position, depth)
-    const response: SearchResponse = { gameId, move }
+    const result = searchBestMove(position, { maxDepth, timeBudgetMs })
+    const response: SearchResponse = { gameId, result }
     ctx.postMessage(response)
   } catch (err) {
     const response: SearchResponse = {
       gameId,
-      move: null,
       error: err instanceof Error ? err.message : String(err),
     }
     ctx.postMessage(response)

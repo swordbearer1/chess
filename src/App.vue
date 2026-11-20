@@ -5,11 +5,15 @@ import {
   generateLegalMoves,
   getGameStatus,
   initialPosition,
+  opposite,
   PIECE_CHARS,
 } from './chess'
 import type { Board, Color, GameStatus, Move, Piece, Position, Square } from './chess'
+import { AI_LEVELS, type AiLevel } from './ai/levels'
+import { OnlineClient } from './online'
+import type { PeersInfo, ServerMoveEvent, ServerState } from './online'
 
-type AiLevel = 'random' | 'search'
+type SideChoice = 'red' | 'black' | 'random'
 type Phase = 'idle' | 'player-anim' | 'thinking' | 'computer-anim'
 
 interface PieceView {
@@ -27,13 +31,19 @@ const PIECE_D = 54 // 棋子直径
 const FONT_SIZE = 28
 
 const ANIM_MS = 500 // 落子动画时长
-const MIN_THINK_MS = 1500 // 电脑在玩家棋子到达目标点后至少等待 1500ms 才能进入动画
+
+// 选边与难度
+const sideChoice = ref<SideChoice>('red') // 新局选边：执红 / 执黑 / 随机，默认执红
+const aiLevel = ref<AiLevel>('normal') // 难度四档，默认普通
+const mode = ref<'ai' | 'online'>('ai') // 对弈模式：人机 / 联机
+const playerColor = ref<Color>('red') // 本局玩家实际执色
+const computerColor = computed<Color>(() => opposite(playerColor.value))
+const flipped = computed(() => playerColor.value === 'black') // 执黑时棋盘 180° 翻转，己方在下
 
 const board = ref(initialPosition().board)
 const sideToMove = ref<Color>('red')
 const selected = ref<Square | null>(null)
 const status = ref<GameStatus>('playing')
-const aiLevel = ref<AiLevel>('search')
 const muted = ref(false)
 const lastMove = ref<Move | null>(null)
 const started = ref(false) // 是否已点击「开始对弈」
@@ -48,13 +58,28 @@ const boardGen = ref(0) // 仅在重开时自增，用于强制重建棋子 DOM�
 let worker: Worker | null = null
 let resizeObserver: ResizeObserver | null = null
 
+// —— 联机状态（服务端为权威，本地棋盘在服务端确认后更新）——
+const roomCode = ref('') // 本局房间码（用于邀请对手）
+const seatColor = ref<Color | null>(null) // 本座位执色（服务端分配）
+const opponentJoined = ref(false) // 对手是否已入座
+const opponentConnected = ref(false) // 对手是否在线
+const host = ref(false) // 本座位是否为房主（仅房主可重新开始）
+const serverVersion = ref(0) // 服务端棋局版本号（每步递增）
+const moveInFlight = ref(false) // 走子已发出、等待服务端确认
+const connectionState = ref<'connecting' | 'connected' | 'disconnected'>('disconnected')
+const onlineBusy = ref(false) // 创建/加入进行中，防止重复提交
+const onlineError = ref('') // 联机错误提示（封面与对局共用）
+const joinCodeInput = ref('')
+let online: OnlineClient | null = null
+let moveSeq = 0
+
 const boardEl = ref<HTMLElement | null>(null)
 const scale = ref(1)
 
 const pieceViews = ref<PieceView[]>(buildPieceViews(board.value))
 const pieceEls = new Map<number, HTMLElement>()
 
-// 计时器集合，重开时统一清理
+// 计时器集合，重开/离开对局时统一清理
 const timers = new Set<number>()
 
 const currentPosition = computed<Position>(() => ({
@@ -75,11 +100,29 @@ const legalTargets = computed<Square[]>(() => {
 })
 
 const turnText = computed(() => {
-  if (status.value === 'redWon') return '红方胜（你赢了）'
-  if (status.value === 'blackWon') return '黑方胜（电脑赢了）'
+  if (mode.value === 'online') {
+    const label = seatColor.value === 'red' ? '红方' : '黑方'
+    if (status.value === 'redWon') return seatColor.value === 'red' ? '红方胜 · 你赢了' : '红方胜 · 你输了'
+    if (status.value === 'blackWon') return seatColor.value === 'black' ? '黑方胜 · 你赢了' : '黑方胜 · 你输了'
+    if (connectionState.value === 'disconnected') return '连接已断开，正在重连…'
+    if (!opponentJoined.value) return '等待对手加入…'
+    if (!opponentConnected.value) return '对手已断线，等待重连…'
+    if (moveInFlight.value) return '走子确认中…'
+    if (sideToMove.value === seatColor.value) return `你的回合（${label}）`
+    return '对手走子中…'
+  }
+
+  const playerLabel = playerColor.value === 'red' ? '红方' : '黑方'
+  const computerLabel = computerColor.value === 'red' ? '红方' : '黑方'
+  if (status.value === 'redWon') {
+    return playerColor.value === 'red' ? '红方胜 · 你赢了' : '红方胜 · 电脑赢了'
+  }
+  if (status.value === 'blackWon') {
+    return playerColor.value === 'black' ? '黑方胜 · 你赢了' : '黑方胜 · 电脑赢了'
+  }
   if (phase.value === 'thinking') return '电脑思考中…'
-  if (phase.value === 'computer-anim') return '电脑回合（黑方）'
-  return '你的回合（红方）'
+  if (phase.value === 'computer-anim') return `电脑回合（${computerLabel}）`
+  return `你的回合（${playerLabel}）`
 })
 
 function buildPieceViews(b: Board): PieceView[] {
@@ -122,13 +165,21 @@ function clearTimers(): void {
 }
 
 function canInteract(): boolean {
-  return phase.value === 'idle' && status.value === 'playing' && gameReady.value
+  return (
+    phase.value === 'idle' &&
+    status.value === 'playing' &&
+    gameReady.value &&
+    sideToMove.value === playerColor.value &&
+    !moveInFlight.value &&
+    (mode.value !== 'online' || connectionState.value === 'connected')
+  )
 }
 
 function isLegalTarget(row: number, col: number): boolean {
   return legalTargets.value.some((s) => s.row === row && s.col === col)
 }
 
+// 点击棋盘：参数一律为原始棋盘坐标，界面坐标映射只发生在渲染层
 function onSquareClick(row: number, col: number): void {
   if (!canInteract()) return
   const piece = board.value[row][col]
@@ -142,12 +193,10 @@ function onSquareClick(row: number, col: number): void {
           m.to.row === row &&
           m.to.col === col,
       )
-      if (move) {
-        applyPlayerMove(move)
-      }
+      if (move) applyPlayerMove(move)
       return
     }
-    if (piece && piece.color === 'red') {
+    if (piece && piece.color === playerColor.value) {
       selected.value = { row, col }
       return
     }
@@ -155,15 +204,21 @@ function onSquareClick(row: number, col: number): void {
     return
   }
 
-  if (piece && piece.color === 'red') {
+  if (piece && piece.color === playerColor.value) {
     selected.value = { row, col }
   }
 }
 
 function applyPlayerMove(move: Move): void {
   selected.value = null
+  if (mode.value === 'online') {
+    // 联机：发服务端校验，收到 moved 广播后才更新棋盘
+    moveInFlight.value = true
+    online?.sendMove(move, nextMoveId())
+    return
+  }
   phase.value = 'player-anim'
-  // 先更新棋盘（同步），再启动电脑计算，使 Worker 在红方动画期间并行计算
+  // 先更新棋盘（同步），再启动电脑计算，使 Worker 在玩家动画期间并行计算
   animateMove(move, onPlayerArrival)
   startComputerThinking()
 }
@@ -176,42 +231,71 @@ function onPlayerArrival(): void {
     return
   }
   phase.value = 'thinking'
-  thinkDeadline = performance.now() + MIN_THINK_MS
+  thinkDeadline = performance.now() + AI_LEVELS[aiLevel.value].minThinkMs
   if (pendingComputerMove.value !== null) scheduleApplyWhenReady()
+}
+
+/** 电脑回合开始（玩家执黑时，棋盘就绪后电脑执红先走） */
+function beginComputerTurn(): void {
+  if (status.value !== 'playing') return
+  if (sideToMove.value !== computerColor.value) return
+  if (phase.value !== 'idle' || !gameReady.value) return
+  phase.value = 'thinking'
+  thinkDeadline = performance.now() + AI_LEVELS[aiLevel.value].minThinkMs
+  startComputerThinking()
 }
 
 function startComputerThinking(): void {
   const id = ++gameId.value
+  const level = AI_LEVELS[aiLevel.value]
+  const position: Position = JSON.parse(JSON.stringify(currentPosition.value)) as Position
 
-  if (aiLevel.value === 'random') {
-    const moves = generateLegalMoves(currentPosition.value)
-    pendingComputerMove.value = moves.length
-      ? moves[Math.floor(Math.random() * moves.length)]
-      : null
+  if (level.mode === 'random') {
+    // 入门档：随机合法走法，立即应招
+    pendingComputerMove.value = pickRandomLegal(position)
+    onComputerResultReady()
     return
   }
 
   const w = getWorker()
   w.postMessage({
     gameId: id,
-    position: JSON.parse(JSON.stringify(currentPosition.value)) as Position,
-    depth: 3,
+    position,
+    maxDepth: level.maxDepth,
+    timeBudgetMs: level.timeBudgetMs,
   })
 
-  // 安全兜底：Worker 异常挂起时改用随机走法
+  // 兜底：预算用完再加余量后仍无结果（Worker 挂起），用经过校验的合法走法
   later(() => {
-    if (phase.value === 'thinking' && pendingComputerMove.value === null) {
-      const moves = generateLegalMoves(currentPosition.value)
-      pendingComputerMove.value = moves.length
-        ? moves[Math.floor(Math.random() * moves.length)]
-        : null
-      onComputerResultReady()
-    }
-  }, 8000)
+    if (id !== gameId.value) return
+    if (pendingComputerMove.value !== null) return
+    if (phase.value !== 'thinking' && phase.value !== 'player-anim') return
+    pendingComputerMove.value = pickRandomLegal(currentPosition.value)
+    onComputerResultReady()
+  }, level.timeBudgetMs + 1500)
+}
+
+function pickRandomLegal(position: Position): Move | null {
+  const moves = generateLegalMoves(position)
+  return moves.length ? moves[Math.floor(Math.random() * moves.length)] : null
+}
+
+/** 校验 Worker 返回的走法在当前局面合法，异常时用合法走法兜底 */
+function validateWorkerMove(move: Move | null): Move | null {
+  if (!move) return pickRandomLegal(currentPosition.value)
+  const legal = generateLegalMoves(currentPosition.value)
+  const ok = legal.some(
+    (m) =>
+      m.from.row === move.from.row &&
+      m.from.col === move.from.col &&
+      m.to.row === move.to.row &&
+      m.to.col === move.to.col,
+  )
+  return ok ? move : pickRandomLegal(currentPosition.value)
 }
 
 function onComputerResultReady(): void {
-  if (phase.value === 'player-anim') return // 等红方动画结束
+  if (phase.value === 'player-anim') return // 等玩家动画结束
   if (phase.value === 'thinking') scheduleApplyWhenReady()
 }
 
@@ -237,6 +321,9 @@ function applyComputerMoveNow(): void {
 function onComputerArrival(): void {
   status.value = getGameStatus(currentPosition.value)
   phase.value = 'idle'
+  if (status.value === 'playing' && sideToMove.value === computerColor.value) {
+    beginComputerTurn() // 保险：正常流程不会走到
+  }
 }
 
 function animateMove(move: Move, onArrival: () => void): void {
@@ -265,34 +352,185 @@ function movePiece(view: PieceView, from: Square, to: Square): void {
   view.row = to.row
   view.col = to.col
   if (el) {
+    const f = viewSquare(from)
+    const t = viewSquare(to)
     el.animate(
       [
-        { left: px(ORIGIN + CELL * from.col), top: px(ORIGIN + CELL * from.row) },
-        { left: px(ORIGIN + CELL * to.col), top: px(ORIGIN + CELL * to.row) },
+        { left: px(ORIGIN + CELL * f.col), top: px(ORIGIN + CELL * f.row) },
+        { left: px(ORIGIN + CELL * t.col), top: px(ORIGIN + CELL * t.row) },
       ],
       { duration: ANIM_MS, easing: 'ease', fill: 'forwards' },
     )
   }
 }
 
+// —— 联机对弈：创建/加入房间与服务端消息处理（服务端确认后才更新棋盘）——
+
+function nextMoveId(): string {
+  moveSeq += 1
+  return `${Date.now().toString(36)}-${moveSeq}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+function getOnline(): OnlineClient {
+  if (!online) {
+    online = new OnlineClient({
+      onOpen: () => {
+        connectionState.value = 'connected'
+      },
+      onClose: () => {
+        connectionState.value = 'disconnected'
+      },
+      onCreated: (code, color, token) => {
+        online?.setSession(code, token, color)
+        seatColor.value = color
+        playerColor.value = color
+        host.value = true
+        onlineBusy.value = false
+        started.value = true
+      },
+      onJoined: (code, color, token) => {
+        online?.setSession(code, token, color)
+        seatColor.value = color
+        playerColor.value = color
+        host.value = false
+        onlineBusy.value = false
+        started.value = true
+      },
+      onState: onServerState,
+      onMoved: onServerMoved,
+      onRestarted: onServerRestarted,
+      onPeers: (peers) => applyPeers(peers),
+      onOpponentLeft: (color) => {
+        if (color !== seatColor.value) {
+          opponentJoined.value = false
+          opponentConnected.value = false
+        }
+      },
+      onError: (message) => {
+        onlineError.value = message
+        onlineBusy.value = false
+        moveInFlight.value = false
+        // 刷新后自动重连失败（房间已解散 / 凭证失效）：退回封面提示
+        if (started.value && !roomCode.value) {
+          online?.clearSession()
+          started.value = false
+          gameReady.value = false
+        }
+      },
+    })
+  }
+  return online
+}
+
+function onCreateRoom(): void {
+  if (onlineBusy.value) return
+  onlineBusy.value = true
+  onlineError.value = ''
+  connectionState.value = 'connecting'
+  rollAndReset() // 先摆好初始局面，座位与执色以服务端为准
+  getOnline().create(sideChoice.value)
+}
+
+function onJoinRoom(): void {
+  if (onlineBusy.value) return
+  const code = joinCodeInput.value.trim().toUpperCase()
+  if (code.length !== 6) {
+    onlineError.value = '请输入 6 位房间码'
+    return
+  }
+  onlineBusy.value = true
+  onlineError.value = ''
+  connectionState.value = 'connecting'
+  rollAndReset()
+  getOnline().join(code)
+}
+
+function onModeSwitch(next: 'ai' | 'online'): void {
+  if (next === mode.value) return
+  mode.value = next
+  onlineError.value = ''
+}
+
+/** 服务端全量状态（入座 / 重连同步）：重建本地棋盘 */
+function onServerState(state: ServerState): void {
+  connectionState.value = 'connected'
+  serverVersion.value = state.version
+  roomCode.value = state.code
+  seatColor.value = state.color
+  playerColor.value = state.color
+  host.value = state.host
+  status.value = state.status
+  board.value = state.position.board
+  sideToMove.value = state.position.sideToMove
+  selected.value = null
+  lastMove.value = null
+  phase.value = 'idle'
+  moveInFlight.value = false
+  pendingComputerMove.value = null
+  pieceViews.value = buildPieceViews(state.position.board)
+  boardGen.value++ // 重建棋子 DOM，清除残留动画
+  applyPeers(state.peers)
+}
+
+/** 服务端确认后的走子广播：双方同源更新棋盘与动画 */
+function onServerMoved(ev: ServerMoveEvent): void {
+  serverVersion.value = ev.version
+  if (ev.by === seatColor.value) moveInFlight.value = false
+  selected.value = null
+  phase.value = ev.by === seatColor.value ? 'player-anim' : 'computer-anim'
+  animateMove(ev.move, () => {
+    status.value = ev.status
+    phase.value = 'idle'
+  })
+}
+
+/** 房主重新开始（服务端广播）：双方重置为初始局面 */
+function onServerRestarted(position: Position, version: number, st: GameStatus): void {
+  serverVersion.value = version
+  boardGen.value++
+  clearTimers()
+  pendingComputerMove.value = null
+  board.value = position.board
+  sideToMove.value = position.sideToMove
+  status.value = st
+  selected.value = null
+  lastMove.value = null
+  phase.value = 'idle'
+  moveInFlight.value = false
+  pieceViews.value = buildPieceViews(position.board)
+}
+
+function applyPeers(peers: PeersInfo): void {
+  if (!seatColor.value) return
+  const opp = opposite(seatColor.value)
+  opponentJoined.value = opp === 'red' ? peers.red : peers.black
+  opponentConnected.value = opp === 'red' ? peers.redConnected : peers.blackConnected
+}
+
+function onRestartClick(): void {
+  if (mode.value === 'online') {
+    if (!host.value) return // 仅房主可重新开始
+    online?.sendRestart()
+    return
+  }
+  restart()
+}
+
 function getWorker(): Worker {
   if (!worker) {
     worker = new Worker(new URL('./ai/worker.ts', import.meta.url), { type: 'module' })
     worker.onmessage = (event: MessageEvent) => {
-      const { gameId: id, move, error } = event.data as {
+      const { gameId: id, result, error } = event.data as {
         gameId: number
-        move: Move | null
+        result?: { move: Move | null }
         error?: string
       }
       if (id !== gameId.value) return // 忽略上一局尚未返回的结果
-      if (error) {
-        console.error('[AI Worker] 搜索出错：', error)
-        const moves = generateLegalMoves(currentPosition.value)
-        pendingComputerMove.value = moves.length
-          ? moves[Math.floor(Math.random() * moves.length)]
-          : null
+      if (error || !result) {
+        console.error('[AI Worker] 搜索出错：', error ?? '无结果')
+        pendingComputerMove.value = pickRandomLegal(currentPosition.value)
       } else {
-        pendingComputerMove.value = move
+        pendingComputerMove.value = validateWorkerMove(result.move)
       }
       onComputerResultReady()
     }
@@ -303,9 +541,64 @@ function getWorker(): Worker {
   return worker
 }
 
+// 按选边抽签并重置为初始局面（重开沿用本局选边与难度；随机选边则重新抽签）
+function rollAndReset(): void {
+  if (sideChoice.value === 'random') {
+    playerColor.value = Math.random() < 0.5 ? 'red' : 'black'
+  } else {
+    playerColor.value = sideChoice.value
+  }
+
+  gameId.value++ // 使尚未返回的计算结果失效
+  boardGen.value++ // 重建棋子 DOM，清除残留的落子动画
+  clearTimers() // 清理旧动画/计时的回调
+  pendingComputerMove.value = null
+
+  const p = initialPosition()
+  board.value = p.board
+  sideToMove.value = 'red' // 红方始终先走
+  status.value = 'playing'
+  selected.value = null
+  lastMove.value = null
+  phase.value = 'idle'
+  pieceViews.value = buildPieceViews(p.board)
+}
+
+function restart(): void {
+  rollAndReset()
+  if (playerColor.value === 'black') beginComputerTurn() // 玩家执黑：电脑执红先走
+}
+
+function onSideChoiceChange(): void {
+  restart() // 换边视为新局；随机选边重新抽签
+}
+
 function onStart(): void {
   if (started.value) return // 转场期间只接受一次开始操作
+  rollAndReset()
   started.value = true
+}
+
+function exitToCover(): void {
+  // 离开对局：清理旧局计时器和搜索任务（DOM 卸载时还会终止 Worker）
+  gameId.value++
+  clearTimers()
+  pendingComputerMove.value = null
+  selected.value = null
+  gameReady.value = false
+  started.value = false
+  if (mode.value === 'online' && online) {
+    // 离开房间：通知服务端释放座位、断开连接并清除本地会话
+    online.leave()
+    seatColor.value = null
+    roomCode.value = ''
+    opponentJoined.value = false
+    opponentConnected.value = false
+    moveInFlight.value = false
+    onlineBusy.value = false
+    onlineError.value = ''
+    connectionState.value = 'disconnected'
+  }
 }
 
 function onBoardEnter(): void {
@@ -317,22 +610,8 @@ function onBoardEnter(): void {
 
 function onBoardEntered(): void {
   gameReady.value = true
-}
-
-function restart(): void {
-  gameId.value++ // 使尚未返回的计算结果失效
-  boardGen.value++ // 重建棋子 DOM，清除残留的落子动画
-  clearTimers() // 清理旧动画/计时的回调
-  pendingComputerMove.value = null
-
-  const p = initialPosition()
-  board.value = p.board
-  sideToMove.value = 'red'
-  status.value = 'playing'
-  selected.value = null
-  lastMove.value = null
-  phase.value = 'idle'
-  pieceViews.value = buildPieceViews(p.board)
+  // 玩家执黑：电脑自动执红走第一步（仅人机模式）
+  if (mode.value !== 'online' && playerColor.value === 'black') beginComputerTurn()
 }
 
 function playSound(kind: 'move' | 'capture'): void {
@@ -345,15 +624,24 @@ function playSound(kind: 'move' | 'capture'): void {
   }
 }
 
+// —— 坐标与样式：棋规与消息统一使用原始棋盘坐标，仅在界面层映射显示位置 ——
+
+/** 原始棋盘坐标 → 界面显示坐标（执黑时 180° 翻转，己方在下、文字保持正向） */
+function viewSquare(s: Square): Square {
+  if (!flipped.value) return s
+  return { row: 9 - s.row, col: 8 - s.col }
+}
+
 // 棋盘缩放：以容器宽度映射到 600 坐标系
 function px(v: number): string {
   return `${(v * scale.value).toFixed(2)}px`
 }
 
 function centerStyle(row: number, col: number) {
+  const v = viewSquare({ row, col })
   return {
-    left: px(ORIGIN + CELL * col),
-    top: px(ORIGIN + CELL * row),
+    left: px(ORIGIN + CELL * v.col),
+    top: px(ORIGIN + CELL * v.row),
   }
 }
 
@@ -406,11 +694,25 @@ function updateScale(): void {
   }
 }
 
+// 刷新后自动重连：凭上次会话（房间码 + 座位凭证）恢复座位
+const savedSession = OnlineClient.savedSession()
+if (savedSession) {
+  mode.value = 'online'
+  seatColor.value = savedSession.color ?? null
+  if (savedSession.color) playerColor.value = savedSession.color
+  started.value = true
+  connectionState.value = 'connecting'
+  const client = getOnline()
+  client.setSession(savedSession.code, savedSession.token, savedSession.color)
+  client.join(savedSession.code, savedSession.token)
+}
+
 onUnmounted(() => {
   clearTimers()
   resizeObserver?.disconnect()
   worker?.terminate()
   worker = null
+  online?.close()
 })
 </script>
 
@@ -422,7 +724,75 @@ onUnmounted(() => {
         <div class="cover__wash" aria-hidden="true"></div>
         <div class="cover__content">
           <h1 class="cover__title">楚河棋局</h1>
-          <button class="cover__start" type="button" @click="onStart">开始对弈</button>
+
+          <div class="cover__modes" role="tablist" aria-label="对弈模式">
+            <button
+              type="button"
+              :class="{ active: mode === 'ai' }"
+              @click="onModeSwitch('ai')"
+            >人机对弈</button>
+            <button
+              type="button"
+              :class="{ active: mode === 'online' }"
+              @click="onModeSwitch('online')"
+            >联机对弈</button>
+          </div>
+
+          <template v-if="mode === 'ai'">
+            <div class="cover__settings">
+              <label class="cover__field">
+                执色
+                <select v-model="sideChoice">
+                  <option value="red">执红</option>
+                  <option value="black">执黑</option>
+                  <option value="random">随机</option>
+                </select>
+              </label>
+              <label class="cover__field">
+                难度
+                <select v-model="aiLevel">
+                  <option value="beginner">入门</option>
+                  <option value="normal">普通</option>
+                  <option value="hard">困难</option>
+                  <option value="expert">专家</option>
+                </select>
+              </label>
+            </div>
+            <button class="cover__start" type="button" @click="onStart">开始对弈</button>
+          </template>
+
+          <div v-else class="cover__online">
+            <div class="cover__panel">
+              <h2 class="cover__panel-title">创建房间</h2>
+              <label class="cover__field">
+                执色
+                <select v-model="sideChoice">
+                  <option value="red">执红</option>
+                  <option value="black">执黑</option>
+                  <option value="random">随机</option>
+                </select>
+              </label>
+              <button class="cover__start cover__start--sm" type="button" :disabled="onlineBusy" @click="onCreateRoom">
+                {{ onlineBusy ? '创建中…' : '创建房间' }}
+              </button>
+            </div>
+            <div class="cover__panel">
+              <h2 class="cover__panel-title">加入房间</h2>
+              <input
+                v-model="joinCodeInput"
+                class="cover__code"
+                type="text"
+                maxlength="6"
+                placeholder="输入 6 位房间码"
+                aria-label="房间码"
+              />
+              <button class="cover__start cover__start--sm" type="button" :disabled="onlineBusy" @click="onJoinRoom">
+                {{ onlineBusy ? '加入中…' : '加入房间' }}
+              </button>
+            </div>
+            <p v-if="onlineError" class="cover__error" role="alert">{{ onlineError }}</p>
+            <p class="cover__hint">联机对弈需要先启动服务端（npm run server）；人机模式断网可用</p>
+          </div>
         </div>
       </div>
     </Transition>
@@ -432,16 +802,35 @@ onUnmounted(() => {
         <header class="header">
           <h1 class="title">楚河棋局</h1>
           <div class="status" :class="`status--${status}`">{{ turnText }}</div>
-          <div class="controls">
+
+          <div v-if="mode === 'ai'" class="controls">
             <label class="field">
-              电脑：
-              <select v-model="aiLevel" :disabled="phase !== 'idle' || !gameReady">
+              执色
+              <select v-model="sideChoice" @change="onSideChoiceChange">
+                <option value="red">执红</option>
+                <option value="black">执黑</option>
                 <option value="random">随机</option>
-                <option value="search">搜索（Minimax）</option>
+              </select>
+            </label>
+            <label class="field">
+              难度
+              <select v-model="aiLevel" :disabled="!gameReady">
+                <option value="beginner">入门</option>
+                <option value="normal">普通</option>
+                <option value="hard">困难</option>
+                <option value="expert">专家</option>
               </select>
             </label>
             <button class="btn" @click="muted = !muted">{{ muted ? '开启声音' : '静音' }}</button>
-            <button class="btn" @click="restart">重新开始</button>
+            <button class="btn" @click="onRestartClick">重新开始</button>
+            <button class="btn" @click="exitToCover">返回封面</button>
+          </div>
+
+          <div v-else class="controls">
+            <span class="room-code" :title="`把房间码发给对手，对手输入后即可入座`">房间码 {{ roomCode }}</span>
+            <button class="btn" @click="muted = !muted">{{ muted ? '开启声音' : '静音' }}</button>
+            <button class="btn" :disabled="!host" :title="host ? '' : '仅房主可重新开始'" @click="onRestartClick">重新开始</button>
+            <button class="btn" @click="exitToCover">离开房间</button>
           </div>
         </header>
 
@@ -547,6 +936,39 @@ onUnmounted(() => {
   color: #2c2c2c;
 }
 
+.cover__settings {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px 32px;
+  align-items: center;
+}
+
+.cover__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: #4a443c;
+}
+
+.cover__field select {
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  font-size: 14px;
+  letter-spacing: 1px;
+  padding: 6px 10px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid #b8a888;
+  border-radius: 4px;
+  color: #3d362c;
+}
+
+.cover__field select:focus-visible {
+  outline: 2px solid #8f2a1f;
+  outline-offset: 2px;
+}
+
 .cover__start {
   font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: 18px;
@@ -572,6 +994,114 @@ onUnmounted(() => {
 .cover__start:focus-visible {
   outline: 3px solid #8f2a1f;
   outline-offset: 3px;
+}
+
+.cover__start--sm {
+  padding: 10px 28px;
+  font-size: 15px;
+  letter-spacing: 4px;
+}
+
+.cover__start:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.cover__start:disabled:hover {
+  background: #a93226;
+}
+
+.cover__modes {
+  display: flex;
+  gap: 10px;
+}
+
+.cover__modes button {
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  font-size: 15px;
+  letter-spacing: 3px;
+  padding: 8px 22px;
+  background: transparent;
+  border: 1px solid #b8a888;
+  border-radius: 999px;
+  color: #4a443c;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.cover__modes button:hover {
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.cover__modes button.active {
+  background: #a93226;
+  border-color: #8f2a1f;
+  color: #fff;
+}
+
+.cover__modes button:focus-visible {
+  outline: 2px solid #8f2a1f;
+  outline-offset: 2px;
+}
+
+.cover__online {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.cover__panel {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.cover__panel-title {
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  color: #4a443c;
+  margin: 0;
+}
+
+.cover__code {
+  font-family: 'Noto Serif SC', 'SimSun', serif;
+  font-size: 16px;
+  letter-spacing: 4px;
+  padding: 8px 12px;
+  width: 220px;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid #b8a888;
+  border-radius: 4px;
+  color: #3d362c;
+}
+
+.cover__code::placeholder {
+  letter-spacing: 1px;
+  font-size: 14px;
+  color: #9a8f7d;
+}
+
+.cover__code:focus-visible {
+  outline: 2px solid #8f2a1f;
+  outline-offset: 2px;
+}
+
+.cover__error {
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: #8f2a1f;
+  margin: 0;
+}
+
+.cover__hint {
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #9a8f7d;
+  margin: 0;
 }
 
 /* 封面 → 对局 转场 */
@@ -610,6 +1140,10 @@ onUnmounted(() => {
   .cover__content {
     align-items: center;
     text-align: center;
+  }
+
+  .cover__settings {
+    justify-content: center;
   }
 }
 
@@ -691,6 +1225,25 @@ onUnmounted(() => {
 
 .btn:hover {
   background: #f3e6cd;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn:disabled:hover {
+  background: #fbf2df;
+}
+
+.room-code {
+  font-size: 14px;
+  letter-spacing: 2px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #e9dcc3;
+  color: #4a443c;
+  font-variant-numeric: tabular-nums;
 }
 
 .board-wrap {
