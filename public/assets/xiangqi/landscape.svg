@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 700" preserveAspectRatio="xMidYMax slice" role="img" aria-label="淡墨远山与江雾">
+  <defs>
+    <linearGradient id="inkFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5f5f5f" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#5f5f5f" stop-opacity="0.02"/>
+    </linearGradient>
+    <linearGradient id="inkMid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4f4f4f" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#4f4f4f" stop-opacity="0.04"/>
+    </linearGradient>
+    <linearGradient id="inkNear" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#444444" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#444444" stop-opacity="0.06"/>
+    </linearGradient>
+    <linearGradient id="fogBottom" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.55"/>
+    </linearGradient>
+    <filter id="blurFar" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+    <filter id="blurMid" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <filter id="blurNear" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="3"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#blurFar)">
+    <path d="M520 700 L520 300 L570 250 L620 320 L670 230 L720 330 L900 300 L900 700 Z" fill="url(#inkFar)"/>
+  </g>
+  <g filter="url(#blurMid)">
+    <path d="M360 700 L360 420 L430 350 L490 430 L560 360 L630 460 L700 400 L780 500 L900 480 L900 700 Z" fill="url(#inkMid)"/>
+  </g>
+  <g filter="url(#blurNear)">
+    <path d="M260 700 L260 560 L330 510 L400 570 L470 520 L550 580 L640 540 L730 600 L820 560 L900 600 L900 700 Z" fill="url(#inkNear)"/>
+  </g>
+
+  <rect x="0" y="500" width="900" height="200" fill="url(#fogBottom)"/>
+  <rect x="0" y="620" width="900" height="80" fill="#ffffff" opacity="0.28"/>
+</svg>

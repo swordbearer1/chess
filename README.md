@@ -4,6 +4,12 @@
 
 技术栈：Vue 3 + TypeScript + Vite + Web Worker + Vitest。
 
+## 直接试玩
+
+从 Gitee 下载仓库 ZIP 并解压，用 Edge 或 Chrome 打开根目录的 **开始游戏.html**，点击「开始对弈」。
+
+试玩版已内置封面、棋盘、字体、音效和电脑走棋引擎。解压后可离线游玩，浏览器即可运行。
+
 ## 快速开始
 
 ```bash
