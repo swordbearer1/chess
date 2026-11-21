@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyMove,
   createEmptyBoard,
   generateLegalMoves,
   generateRawMoves,
@@ -113,7 +112,7 @@ describe('象/相的走法', () => {
 })
 
 describe('将帅照面', () => {
-  it('撤开将帅间的挡子属于自陷将军，非法', () => {
+  it('允许撤开将帅间的挡子（送将不再被过滤）', () => {
     const b = createEmptyBoard()
     place(b, 9, 4, 'general', 'red')
     place(b, 0, 4, 'general', 'black') // 同列
@@ -121,10 +120,10 @@ describe('将帅照面', () => {
     const p = pos(b, 'red')
 
     const moves = generateLegalMoves(p)
-    // 挡子仍留在同一列（例如下移一格）合法
+    // 挡子下移一格仍可走
     expect(hasMove(moves, { row: 5, col: 4 }, { row: 6, col: 4 })).toBe(true)
-    // 挡子移出该列则两将照面，非法
-    expect(hasMove(moves, { row: 5, col: 4 }, { row: 5, col: 0 })).toBe(false)
+    // 撤开挡子导致两将照面，仍允许（不再过滤自陷将军）
+    expect(hasMove(moves, { row: 5, col: 4 }, { row: 5, col: 0 })).toBe(true)
   })
 
   it('两将同列且中间无子视为被将军', () => {
@@ -151,24 +150,20 @@ describe('被将军时的应对', () => {
     expect(isInCheck(p.board, 'red')).toBe(true)
   })
 
-  it('仅允许解将的走法', () => {
+  it('被将军时仍允许不解将的走法（送将）', () => {
     const p = checkPosition()
     const moves = generateLegalMoves(p)
-    for (const m of moves) {
-      const next = applyMove(p, m)
-      expect(isInCheck(next.board, 'red')).toBe(false)
-    }
-    // 跳马挡将合法
+    // 跳马挡将可走
     expect(hasMove(moves, { row: 7, col: 2 }, { row: 9, col: 3 })).toBe(true)
-    // 将逃离合法
+    // 将逃离可走
     expect(hasMove(moves, { row: 9, col: 4 }, { row: 8, col: 4 })).toBe(true)
-    // 不解决将军的走法非法
-    expect(hasMove(moves, { row: 7, col: 2 }, { row: 5, col: 3 })).toBe(false)
+    // 不解将的走法也允许（不再过滤自陷将军）
+    expect(hasMove(moves, { row: 7, col: 2 }, { row: 5, col: 3 })).toBe(true)
   })
 })
 
 describe('胜负判定', () => {
-  it('将死（无合法走法且被将军）判负', () => {
+  it('被将军但仍有送将走法时不再判负', () => {
     const b = createEmptyBoard()
     place(b, 9, 4, 'general', 'red')
     place(b, 0, 3, 'general', 'black')
@@ -176,20 +171,14 @@ describe('胜负判定', () => {
     place(b, 8, 0, 'chariot', 'black') // 封住 (8,4)
     const p = pos(b, 'red')
     expect(isInCheck(p.board, 'red')).toBe(true)
-    expect(generateLegalMoves(p).length).toBe(0)
-    expect(getGameStatus(p)).toBe('blackWon')
+    expect(generateLegalMoves(p).length).toBeGreaterThan(0)
+    expect(getGameStatus(p)).toBe('playing')
   })
 
-  it('困毙（无合法走法但未被将军）判负', () => {
+  it('将帅被吃后判负', () => {
     const b = createEmptyBoard()
-    place(b, 9, 4, 'general', 'red')
-    place(b, 0, 3, 'general', 'black')
-    place(b, 8, 0, 'chariot', 'black') // 攻击 (8,4)
-    place(b, 9, 2, 'soldier', 'black') // 攻击 (9,3)
-    place(b, 9, 6, 'soldier', 'black') // 攻击 (9,5)
-    const p = pos(b, 'red')
-    expect(isInCheck(p.board, 'red')).toBe(false)
-    expect(generateLegalMoves(p).length).toBe(0)
+    place(b, 0, 3, 'general', 'black') // 仅剩黑将，红帅已被吃
+    const p = pos(b, 'black')
     expect(getGameStatus(p)).toBe('blackWon')
   })
 })
@@ -217,22 +206,6 @@ describe('兵/卒的走法', () => {
     expect(blackMoves.some((m) => m.to.row === 5 && m.to.col === 7)).toBe(true)
     // 不能后退
     expect(blackMoves.some((m) => m.to.row === 4)).toBe(false)
-  })
-})
-
-describe('自陷将军过滤', () => {
-  it('走棋后仍被将军的走法被过滤', () => {
-    const b = createEmptyBoard()
-    place(b, 9, 4, 'general', 'red')
-    place(b, 0, 3, 'general', 'black')
-    place(b, 8, 4, 'advisor', 'red')
-    place(b, 9, 0, 'chariot', 'black') // 沿第 9 行将军
-    const p = pos(b, 'red')
-    const moves = generateLegalMoves(p)
-    // 仕不能走到仍被将军的位置（实际上仕只能斜走，验证所有走法都解将）
-    for (const m of moves) {
-      expect(isInCheck(applyMove(p, m).board, 'red')).toBe(false)
-    }
   })
 })
 

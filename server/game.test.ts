@@ -104,17 +104,17 @@ describe('RoomManager 权威棋局校验', () => {
     expect('error' in b).toBe(false)
   })
 
-  it('终局状态正确传递（将死局面）', () => {
+  it('吃掉将帅后终局状态正确传递', () => {
     const m = new RoomManager()
     const { room, token } = m.createRoom('red')
-    // 构造红方一步杀：黑将(0,4)、黑卒(4,4)、红帅(9,4)、红车(0,0)(0,8)(1,1)(5,4)、红马(0,3)(0,5)
+    // 红车 (5,4) 紧邻黑将 (4,4)，红帅 (9,4)
     room.position = {
       board: [
-        [{ type: 'chariot', color: 'red' }, null, null, { type: 'horse', color: 'red' }, { type: 'general', color: 'black' }, { type: 'horse', color: 'red' }, null, null, { type: 'chariot', color: 'red' }],
-        [null, { type: 'chariot', color: 'red' }, null, null, null, null, null, null, null],
         Array(9).fill(null),
         Array(9).fill(null),
-        [null, null, null, null, { type: 'soldier', color: 'black' }, null, null, null, null],
+        Array(9).fill(null),
+        Array(9).fill(null),
+        [null, null, null, null, { type: 'general', color: 'black' }, null, null, null, null],
         [null, null, null, null, { type: 'chariot', color: 'red' }, null, null, null, null],
         Array(9).fill(null),
         Array(9).fill(null),
@@ -123,6 +123,7 @@ describe('RoomManager 权威棋局校验', () => {
       ],
       sideToMove: 'red',
     }
+    // 红车吃掉黑将
     const result = m.applyClientMove(room, token, { from: { row: 5, col: 4 }, to: { row: 4, col: 4 } }, 'mate')
     expect('error' in result).toBe(false)
     if ('error' in result) return

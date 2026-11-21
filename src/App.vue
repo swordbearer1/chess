@@ -170,6 +170,13 @@ const turnText = computed(() => {
   return `你的回合（${playerLabel}）`
 })
 
+/** 本局玩家是否获胜（null 表示对局未结束） */
+const playerWon = computed<boolean | null>(() => {
+  if (status.value === 'redWon') return playerColor.value === 'red'
+  if (status.value === 'blackWon') return playerColor.value === 'black'
+  return null
+})
+
 function buildPieceViews(b: Board): PieceView[] {
   const list: PieceView[] = []
   let id = 0
@@ -787,28 +794,8 @@ onUnmounted(() => {
         <div class="cover__wash" aria-hidden="true"></div>
 
         <div class="cover__clouds" aria-hidden="true">
-          <svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice">
-            <defs>
-              <path id="spiral" d="M0.0 -58.0 L6.2 -57.1 L12.2 -55.5 L17.9 -53.3 L23.3 -50.5 L28.4 -47.2 L32.9 -43.4 L37.0 -39.1 L40.6 -34.5 L43.6 -29.6 L46.0 -24.5 L47.8 -19.1 L49.1 -13.7 L49.7 -8.2 L49.7 -2.8 L49.1 2.6 L48.0 7.8 L46.3 12.7 L44.1 17.4 L41.4 21.8 L38.3 25.8 L34.9 29.5 L31.1 32.6 L27.0 35.3 L22.7 37.5 L18.3 39.2 L13.8 40.4 L9.2 41.1 L4.6 41.3 L0.1 40.9 L-4.2 40.1 L-8.4 38.8 L-12.4 37.2 L-16.1 35.1 L-19.4 32.6 L-22.5 29.9 L-25.2 26.8 L-27.5 23.6 L-29.4 20.1 L-30.9 16.6 L-31.9 12.9 L-32.6 9.2 L-32.8 5.5 L-32.6 1.9 L-32.1 -1.6 L-31.1 -4.9 L-29.8 -8.1 L-28.2 -11.1 L-26.3 -13.8 L-24.2 -16.2 L-21.9 -18.4 L-19.4 -20.2 L-16.7 -21.7 L-14.0 -22.9 L-11.2 -23.7 L-8.3 -24.2 L-5.5 -24.4 L-2.8 -24.3 L-0.2 -23.8 L2.4 -23.1 L4.7 -22.2 L6.9 -21.0 L8.9 -19.6 L10.6 -18.0 L12.2 -16.3 L13.5 -14.4 L14.5 -12.5 L15.3 -10.5 L15.8 -8.5 L16.1 -6.6 L16.1 -4.6 L16.0 -2.8 L15.6 -1.0 L15.0 0.7 L14.3 2.2 L13.4 3.6 L12.3 4.8 L11.2 5.8 L10.1 6.7 L8.8 7.3 L7.6 7.8 L6.3 8.1 L5.1 8.3 L3.9 8.2 L2.8 8.1 L1.8 7.7 L0.9 7.3 L0.1 6.8 L-0.6 6.1 L-1.1 5.5 L-1.5 4.8" />
-              <g id="cloud" fill="none" stroke="#fffdf6" stroke-width="12" stroke-linecap="round">
-                <use href="#spiral" />
-                <use href="#spiral" transform="translate(46,-20) scale(0.5)" />
-                <use href="#spiral" transform="translate(-44,14) scale(0.66)" />
-              </g>
-            </defs>
-            <g class="cloud" style="--cx: -90px; --cy: -70px; animation-delay: 0s"><use href="#cloud" transform="translate(70,130) scale(2.3)" /></g>
-            <g class="cloud" style="--cx: 70px; --cy: -60px; animation-delay: .06s"><use href="#cloud" transform="translate(470,50) scale(1.9)" /></g>
-            <g class="cloud" style="--cx: 90px; --cy: 40px; animation-delay: .12s"><use href="#cloud" transform="translate(900,110) scale(2.1)" /></g>
-            <g class="cloud" style="--cx: -60px; --cy: 50px; animation-delay: .18s"><use href="#cloud" transform="translate(140,420) scale(1.7)" /></g>
-            <g class="cloud" style="--cx: -40px; --cy: -40px; animation-delay: .24s"><use href="#cloud" transform="translate(600,340) scale(2)" /></g>
-            <g class="cloud" style="--cx: 70px; --cy: 50px; animation-delay: .3s"><use href="#cloud" transform="translate(1010,340) scale(1.8)" /></g>
-            <g class="cloud" style="--cx: -80px; --cy: 60px; animation-delay: .14s"><use href="#cloud" transform="translate(40,640) scale(2)" /></g>
-            <g class="cloud" style="--cx: 40px; --cy: 70px; animation-delay: .2s"><use href="#cloud" transform="translate(420,660) scale(1.6)" /></g>
-            <g class="cloud" style="--cx: 90px; --cy: 80px; animation-delay: .26s"><use href="#cloud" transform="translate(740,640) scale(2.3)" /></g>
-            <g class="cloud" style="--cx: 80px; --cy: 60px; animation-delay: .1s"><use href="#cloud" transform="translate(1100,600) scale(1.7)" /></g>
-          </svg>
+          <img class="clouds__img" src="/assets/xiangqi/clouds.png" alt="" draggable="false" />
         </div>
-        <div class="cover__veil" aria-hidden="true"></div>
 
         <div class="cover__content">
           <h1 class="cover__title">楚河棋局</h1>
@@ -971,6 +958,31 @@ onUnmounted(() => {
             </div>
           </div>
         </main>
+
+        <Transition name="result">
+          <div v-if="playerWon !== null" class="result" :class="playerWon ? 'result--win' : 'result--lose'">
+            <div class="result__mask" aria-hidden="true"></div>
+            <div v-if="playerWon" class="result__sparks" aria-hidden="true">
+              <i v-for="n in 14" :key="n" :style="{ '--i': n }"></i>
+            </div>
+            <div class="result__card">
+              <div class="result__badge">{{ playerWon ? '胜' : '负' }}</div>
+              <h2 class="result__title">{{ playerWon ? '胜利' : '失败' }}</h2>
+              <p class="result__sub">{{ turnText }}</p>
+              <div class="result__actions">
+                <button
+                  class="result__btn"
+                  type="button"
+                  :disabled="mode === 'online' && !host"
+                  @click="onRestartClick"
+                >
+                  {{ mode === 'online' && !host ? '等待房主重新开始' : '再来一局' }}
+                </button>
+                <button class="result__btn result__btn--ghost" type="button" @click="exitToCover">返回封面</button>
+              </div>
+            </div>
+          </div>
+        </Transition>
       </div>
     </Transition>
   </div>
@@ -1032,7 +1044,7 @@ onUnmounted(() => {
   transition: opacity 450ms ease;
 }
 
-/* 祥云层：开局笼罩全屏，1s 内散开淡出 */
+/* 祥云层：开局以祥云图笼罩全屏，1s 内散开淡出 */
 .cover__clouds {
   position: absolute;
   inset: -30px;
@@ -1041,48 +1053,22 @@ onUnmounted(() => {
   transform: translate(calc(var(--px, 0) * -20px), calc(var(--py, 0) * -14px));
 }
 
-.cover__clouds svg {
+.clouds__img {
   width: 100%;
   height: 100%;
+  object-fit: cover;
   display: block;
+  animation: clouds-out 1.05s cubic-bezier(0.35, 0.45, 0.45, 1) both;
 }
 
-.cover__clouds .cloud {
-  opacity: 1;
-  transform-box: fill-box;
-  transform-origin: 50% 50%;
-  animation: cloud-out 1.05s cubic-bezier(0.35, 0.45, 0.45, 1) both;
-}
-
-@keyframes cloud-out {
+@keyframes clouds-out {
   0% {
     opacity: 1;
-    transform: translate(0, 0) scale(1);
+    transform: scale(1) translateY(0);
   }
   100% {
     opacity: 0;
-    transform: translate(var(--cx, 60px), var(--cy, -40px)) scale(1.45);
-  }
-}
-
-/* 白雾幕：与祥云一起退去，露出背景 */
-.cover__veil {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  background:
-    radial-gradient(60% 55% at 32% 18%, rgba(255, 252, 244, 0.95), rgba(255, 252, 244, 0.62) 62%, rgba(255, 252, 244, 0.25) 100%),
-    linear-gradient(180deg, #fffaf0, #f9eed7);
-  pointer-events: none;
-  animation: veil-out 1.05s ease-out 0.12s both;
-}
-
-@keyframes veil-out {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0;
+    transform: scale(1.14) translateY(-2%);
   }
 }
 
@@ -1451,14 +1437,12 @@ onUnmounted(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .cover__art,
-  .cover__clouds .cloud,
-  .cover__veil,
+  .clouds__img,
   .cover__content > * {
     animation: none;
   }
 
-  .cover__clouds,
-  .cover__veil {
+  .cover__clouds {
     opacity: 0;
   }
 
@@ -1682,5 +1666,191 @@ onUnmounted(() => {
   background: transparent;
   border: 3px solid rgba(46, 125, 50, 0.8);
   box-sizing: border-box;
+}
+
+/* 胜利 / 失败 结算动画 */
+.result {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.result__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(18, 15, 10, 0.52);
+}
+
+.result--win .result__mask {
+  background: radial-gradient(120% 120% at 50% 38%, rgba(246, 193, 74, 0.38), rgba(18, 15, 10, 0.66) 72%);
+}
+
+.result--lose .result__mask {
+  background: radial-gradient(120% 120% at 50% 38%, rgba(96, 104, 122, 0.4), rgba(18, 15, 10, 0.7) 72%);
+}
+
+.result__card {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 42px 60px;
+  border-radius: 18px;
+  background: rgba(255, 251, 240, 0.97);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.result__badge {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 52px;
+  font-weight: 700;
+  color: #fff;
+  animation: badge-pop 0.55s cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+
+.result--win .result__badge {
+  background: linear-gradient(160deg, #f6c14a, #d98a1f);
+  box-shadow: 0 0 0 8px rgba(246, 193, 74, 0.22), 0 12px 30px rgba(217, 138, 31, 0.42);
+}
+
+.result--lose .result__badge {
+  background: linear-gradient(160deg, #8a8f9c, #555a66);
+  box-shadow: 0 0 0 8px rgba(138, 143, 156, 0.2);
+}
+
+.result__title {
+  font-size: 40px;
+  letter-spacing: 8px;
+  margin: 0;
+}
+
+.result--win .result__title { color: #b2761a; }
+.result--lose .result__title { color: #4a4f5a; }
+
+.result__sub {
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: #6b6255;
+  margin: 0;
+}
+
+.result__actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.result__btn {
+  font-size: 15px;
+  letter-spacing: 3px;
+  padding: 12px 28px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.result--win .result__btn { background: #c98a1f; }
+.result--lose .result__btn { background: #5a5f6b; }
+
+.result__btn--ghost {
+  background: transparent !important;
+  color: #6b6255;
+  border: 1px solid #c9bfa8;
+}
+
+.result__btn:hover { filter: brightness(1.07); }
+.result__btn:active { transform: scale(0.97); }
+.result__btn:disabled { opacity: 0.5; cursor: default; }
+
+.result__sparks {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.result__sparks i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #f6c14a;
+  box-shadow: 0 0 12px rgba(246, 193, 74, 0.9);
+  animation: spark-fly 1.3s ease-out infinite;
+  animation-delay: calc(var(--i) * 0.07s);
+}
+
+@keyframes spark-fly {
+  0% {
+    transform: translate(-50%, -50%) rotate(calc(var(--i) * 25.7deg)) translateY(0) scale(0);
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(calc(var(--i) * 25.7deg)) translateY(-250px) scale(1);
+    opacity: 0;
+  }
+}
+
+@keyframes badge-pop {
+  from { transform: scale(0); }
+  to { transform: scale(1); }
+}
+
+.result-enter-active {
+  transition: opacity 0.35s ease;
+}
+
+.result-enter-active .result__mask {
+  animation: mask-in 0.4s ease both;
+}
+
+.result-enter-active .result__card {
+  animation: card-in 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both;
+}
+
+.result-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.result-enter-from,
+.result-leave-to {
+  opacity: 0;
+}
+
+@keyframes mask-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(30px) scale(0.82); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result__badge,
+  .result__sparks i,
+  .result-enter-active .result__mask,
+  .result-enter-active .result__card {
+    animation: none;
+  }
 }
 </style>

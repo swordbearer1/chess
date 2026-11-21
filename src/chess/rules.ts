@@ -111,31 +111,18 @@ export function applyMove(position: Position, move: Move): Position {
   return { board, sideToMove: opposite(position.sideToMove) }
 }
 
-/** 生成 color 方所有合法走法（过滤自陷将军）。只克隆一次工作棋盘，用定向攻击检测校验。 */
+/** 生成 color 方所有可走法（不过滤“自陷将军”，允许送将；将帅被吃后由 getGameStatus 判负）。 */
 export function generateLegalMoves(position: Position): Move[] {
-  const opponent = opposite(position.sideToMove)
-  const board = cloneBoard(position.board)
-  const king = findKing(board, position.sideToMove)
+  const king = findKing(position.board, position.sideToMove)
   if (!king) return []
-  const moves = generateRawMoves(board, position.sideToMove)
-  return moves.filter((m) => {
-    const piece = board[m.from.row][m.from.col]!
-    const captured = board[m.to.row][m.to.col]
-    board[m.from.row][m.from.col] = null
-    board[m.to.row][m.to.col] = piece
-    const kingSquare = piece.type === 'general' ? m.to : king
-    const legal = !isSquareAttacked(board, kingSquare, opponent)
-    board[m.to.row][m.to.col] = captured
-    board[m.from.row][m.from.col] = piece
-    return legal
-  })
+  return generateRawMoves(position.board, position.sideToMove)
 }
 
 export function hasLegalMove(position: Position): boolean {
   return generateLegalMoves(position).length > 0
 }
 
-/** 判胜负：无合法走法（将死或困毙）则轮到的一方负 */
+/** 判胜负：将帅被吃、或无子可走（困毙）则轮到的一方负 */
 export function getGameStatus(position: Position): GameStatus {
   const redKing = findKing(position.board, 'red')
   const blackKing = findKing(position.board, 'black')

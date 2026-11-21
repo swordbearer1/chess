@@ -54,14 +54,16 @@ describe('迭代加深 + Alpha-Beta 搜索', () => {
     expect(result.move!.to.row === 5 && result.move!.to.col === 1).toBe(true)
   })
 
-  it('将死局面返回 null', () => {
+  it('被将军但仍有送将走法时返回走法（不再判将死）', () => {
     const b = createEmptyBoard()
     place(b, 9, 4, 'general', 'red')
     place(b, 0, 3, 'general', 'black')
     place(b, 9, 0, 'chariot', 'black')
     place(b, 8, 0, 'chariot', 'black')
     const p: Position = { board: b, sideToMove: 'red' }
-    expect(searchBestMove(p, { maxDepth: 3, timeBudgetMs: 3000 }).move).toBeNull()
+    const result = searchBestMove(p, { maxDepth: 3, timeBudgetMs: 3000 })
+    expect(result.move).not.toBeNull()
+    expect(isLegalMove(p, result.move!)).toBe(true)
   })
 
   it('一步杀：深度 1 也能发现将杀，不遗漏深度边界终局', () => {
