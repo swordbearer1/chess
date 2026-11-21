@@ -47,6 +47,58 @@ const AI_LEVEL_OPTIONS: { value: AiLevel; label: string; desc: string }[] = [
   { value: 'expert', label: '专家', desc: '极限算力，巅峰对决' },
 ]
 
+// —— 封面祥云：多朵云铺满全屏，由中间向两边散去 ——
+interface CoverCloud {
+  id: number
+  left: number // 水平位置（vw）
+  top: number // 垂直位置（vh）
+  width: number // 云朵宽度（vw，不超过屏幕 1/6 ≈ 16.67vw）
+  layer: number // 层（越大越靠前、越大朵）
+  delay: number // 起步延迟（s，越靠中间越先散）
+  dx: number // 水平飘散距离（vw，左负右正）
+  dy: number // 垂直飘散距离（vh）
+}
+
+function mulberry32(seed: number): () => number {
+  return function () {
+    seed |= 0
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+const coverClouds: CoverCloud[] = (() => {
+  const rng = mulberry32(20261121)
+  const list: CoverCloud[] = []
+  let id = 0
+  const perLayer = 16
+  for (let layer = 1; layer <= 3; layer++) {
+    for (let i = 0; i < perLayer; i++) {
+      const left = rng() * 100
+      const top = -8 + rng() * 116
+      const width = layer === 1 ? 9 + rng() * 3 : layer === 2 ? 11 + rng() * 3 : 13 + rng() * 3
+      const centerDist = Math.abs(left - 50) / 50
+      const delay = centerDist * 1.0 + rng() * 0.2
+      const dir = left < 50 ? -1 : 1
+      const dx = dir * (28 + rng() * 42)
+      const dy = (rng() - 0.5) * 34
+      list.push({
+        id: id++,
+        left: +left.toFixed(2),
+        top: +top.toFixed(2),
+        width: +width.toFixed(2),
+        layer,
+        delay: +delay.toFixed(2),
+        dx: +dx.toFixed(1),
+        dy: +dy.toFixed(1),
+      })
+    }
+  }
+  return list
+})()
+
 // 选边与难度
 const sideChoice = ref<SideChoice>('red') // 新局选边：执红 / 执黑 / 随机，默认执红
 const aiLevel = ref<AiLevel>('normal') // 难度四档，默认普通
@@ -794,12 +846,23 @@ onUnmounted(() => {
         <div class="cover__wash" aria-hidden="true"></div>
 
         <div class="cover__clouds" aria-hidden="true">
-          <img class="clouds__cloud clouds__cloud--1" src="/assets/xiangqi/clouds/cloud-1.png" alt="" draggable="false" />
-          <img class="clouds__cloud clouds__cloud--2" src="/assets/xiangqi/clouds/cloud-2.png" alt="" draggable="false" />
-          <img class="clouds__cloud clouds__cloud--3" src="/assets/xiangqi/clouds/cloud-3.png" alt="" draggable="false" />
-          <img class="clouds__cloud clouds__cloud--4" src="/assets/xiangqi/clouds/cloud-4.png" alt="" draggable="false" />
-          <img class="clouds__cloud clouds__cloud--5" src="/assets/xiangqi/clouds/cloud-5.png" alt="" draggable="false" />
-          <img class="clouds__cloud clouds__cloud--6" src="/assets/xiangqi/clouds/cloud-6.png" alt="" draggable="false" />
+          <img
+            v-for="c in coverClouds"
+            :key="c.id"
+            class="clouds__cloud"
+            :style="{
+              left: c.left + 'vw',
+              top: c.top + 'vh',
+              width: c.width + 'vw',
+              zIndex: c.layer,
+              '--dx': c.dx + 'vw',
+              '--dy': c.dy + 'vh',
+              animationDelay: c.delay + 's',
+            }"
+            src="/assets/xiangqi/cloud.png"
+            alt=""
+            draggable="false"
+          />
         </div>
 
         <div class="cover__content">
@@ -1049,7 +1112,7 @@ onUnmounted(() => {
   transition: opacity 450ms ease;
 }
 
-/* 祥云层：6 朵独立祥云在封面中央交叠，约 2s 内向左右及斜向飘散（拨云见日） */
+/* 祥云层：多朵祥云铺满屏幕，由中间向两边散去（拨云见日） */
 .cover__clouds {
   position: absolute;
   inset: 0;
@@ -1061,33 +1124,24 @@ onUnmounted(() => {
 
 .clouds__cloud {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+  height: auto;
   will-change: transform, opacity;
   animation-name: cloud-drift;
+  animation-duration: 1.5s;
   animation-timing-function: cubic-bezier(0.4, 0.05, 0.3, 1);
   animation-fill-mode: both;
 }
 
-/* 初始位置错落交叠在中央；--dx/--dy 为飘散方向（左/右、上/下略有偏移） */
-.clouds__cloud--1 { left: 36%; top: 46%; --dx: -44vw; --dy: -8vh; animation-duration: 1.7s; animation-delay: 0s; }
-.clouds__cloud--2 { left: 46%; top: 38%; --dx: -52vw; --dy: -22vh; animation-duration: 1.9s; animation-delay: 0.12s; }
-.clouds__cloud--3 { left: 42%; top: 58%; --dx: -38vw; --dy: 26vh; animation-duration: 1.5s; animation-delay: 0.24s; }
-.clouds__cloud--4 { left: 54%; top: 44%; --dx: 46vw; --dy: 4vh; animation-duration: 1.8s; animation-delay: 0.06s; }
-.clouds__cloud--5 { left: 62%; top: 34%; --dx: 54vw; --dy: -20vh; animation-duration: 1.6s; animation-delay: 0.18s; }
-.clouds__cloud--6 { left: 58%; top: 56%; --dx: 42vw; --dy: 24vh; animation-duration: 1.5s; animation-delay: 0.3s; }
-
 @keyframes cloud-drift {
   0% {
-    transform: translate(-50%, -50%) scale(1);
+    transform: translate(0, 0) scale(1);
     opacity: 1;
   }
-  55% {
-    opacity: 0.92;
+  60% {
+    opacity: 0.9;
   }
   100% {
-    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.06);
+    transform: translate(var(--dx), var(--dy)) scale(1.05);
     opacity: 0;
   }
 }
