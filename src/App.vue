@@ -25,12 +25,27 @@ interface PieceView {
 
 // 棋盘坐标系常量（与 board.svg 的 viewBox 0 0 600 660 一致）
 const BOARD_W = 600
+const BOARD_H = 660
 const ORIGIN = 60
 const CELL = 60
 const PIECE_D = 54 // 棋子直径
 const FONT_SIZE = 28
 
 const ANIM_MS = 500 // 落子动画时长
+
+// 封面：执色与难度选项（对局开始前选择）
+const SIDE_OPTIONS: { value: SideChoice; label: string }[] = [
+  { value: 'red', label: '执红' },
+  { value: 'black', label: '执黑' },
+  { value: 'random', label: '随机' },
+]
+
+const AI_LEVEL_OPTIONS: { value: AiLevel; label: string; desc: string }[] = [
+  { value: 'beginner', label: '入门', desc: '随机落子，轻松上手' },
+  { value: 'normal', label: '普通', desc: '基础算路，稳扎稳打' },
+  { value: 'hard', label: '困难', desc: '深谋远虑，步步紧逼' },
+  { value: 'expert', label: '专家', desc: '极限算力，巅峰对决' },
+]
 
 // 选边与难度
 const sideChoice = ref<SideChoice>('red') // 新局选边：执红 / 执黑 / 随机，默认执红
@@ -74,7 +89,37 @@ let online: OnlineClient | null = null
 let moveSeq = 0
 
 const boardEl = ref<HTMLElement | null>(null)
+const boardWrapEl = ref<HTMLElement | null>(null)
 const scale = ref(1)
+
+// —— 封面鼠标视差：把归一化坐标写入 CSS 变量，各图层按不同系数平移 ——
+const coverEl = ref<HTMLElement | null>(null)
+const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+let parallaxX = 0
+let parallaxY = 0
+let parallaxRaf = 0
+
+function onCoverPointerMove(e: MouseEvent): void {
+  if (reduceMotion || coarsePointer) return
+  parallaxX = (e.clientX / window.innerWidth) * 2 - 1
+  parallaxY = (e.clientY / window.innerHeight) * 2 - 1
+  if (!parallaxRaf) parallaxRaf = window.requestAnimationFrame(applyParallax)
+}
+
+function onCoverPointerLeave(): void {
+  parallaxX = 0
+  parallaxY = 0
+  if (!parallaxRaf) parallaxRaf = window.requestAnimationFrame(applyParallax)
+}
+
+function applyParallax(): void {
+  parallaxRaf = 0
+  const el = coverEl.value
+  if (!el) return
+  el.style.setProperty('--px', parallaxX.toFixed(3))
+  el.style.setProperty('--py', parallaxY.toFixed(3))
+}
 
 const pieceViews = ref<PieceView[]>(buildPieceViews(board.value))
 const pieceEls = new Map<number, HTMLElement>()
@@ -605,7 +650,7 @@ function onBoardEnter(): void {
   // 棋盘进入 DOM 时初始化缩放与尺寸观察器，确保淡入前棋子已对齐
   updateScale()
   if (!resizeObserver) resizeObserver = new ResizeObserver(updateScale)
-  if (boardEl.value) resizeObserver.observe(boardEl.value)
+  if (boardWrapEl.value) resizeObserver.observe(boardWrapEl.value)
 }
 
 function onBoardEntered(): void {
@@ -689,9 +734,18 @@ function pieceChar(piece: Piece): string {
 }
 
 function updateScale(): void {
-  if (boardEl.value) {
-    scale.value = boardEl.value.clientWidth / BOARD_W
-  }
+  // 棋盘在容器（宽度上限 600、高度上限 660）内取最大的等比尺寸，
+  // 保证任何窗口高度下对弈界面单页完整可见、无需滚动（Edge 等浏览器一致）
+  const wrap = boardWrapEl.value
+  const el = boardEl.value
+  if (!wrap || !el) return
+  const availW = wrap.clientWidth
+  const availH = wrap.clientHeight
+  if (availW <= 0 || availH <= 0) return
+  const size = Math.min(availW, (availH * BOARD_W) / BOARD_H)
+  el.style.width = `${size.toFixed(2)}px`
+  el.style.height = `${((size * BOARD_H) / BOARD_W).toFixed(2)}px`
+  scale.value = size / BOARD_W
 }
 
 // 刷新后自动重连：凭上次会话（房间码 + 座位凭证）恢复座位
@@ -709,6 +763,7 @@ if (savedSession) {
 
 onUnmounted(() => {
   clearTimers()
+  if (parallaxRaf) window.cancelAnimationFrame(parallaxRaf)
   resizeObserver?.disconnect()
   worker?.terminate()
   worker = null
@@ -719,11 +774,45 @@ onUnmounted(() => {
 <template>
   <div class="app">
     <Transition name="cover">
-      <div v-if="!started" class="cover">
-        <img class="cover__art" src="/assets/xiangqi/landscape.svg" alt="" draggable="false" />
+      <div
+        v-if="!started"
+        ref="coverEl"
+        class="cover"
+        @mousemove="onCoverPointerMove"
+        @mouseleave="onCoverPointerLeave"
+      >
+        <div class="cover__bg" aria-hidden="true">
+          <img class="cover__art" src="/assets/xiangqi/cover.png" alt="" draggable="false" />
+        </div>
         <div class="cover__wash" aria-hidden="true"></div>
+
+        <div class="cover__clouds" aria-hidden="true">
+          <svg viewBox="0 0 1200 700" preserveAspectRatio="xMidYMid slice">
+            <defs>
+              <path id="spiral" d="M0.0 -58.0 L6.2 -57.1 L12.2 -55.5 L17.9 -53.3 L23.3 -50.5 L28.4 -47.2 L32.9 -43.4 L37.0 -39.1 L40.6 -34.5 L43.6 -29.6 L46.0 -24.5 L47.8 -19.1 L49.1 -13.7 L49.7 -8.2 L49.7 -2.8 L49.1 2.6 L48.0 7.8 L46.3 12.7 L44.1 17.4 L41.4 21.8 L38.3 25.8 L34.9 29.5 L31.1 32.6 L27.0 35.3 L22.7 37.5 L18.3 39.2 L13.8 40.4 L9.2 41.1 L4.6 41.3 L0.1 40.9 L-4.2 40.1 L-8.4 38.8 L-12.4 37.2 L-16.1 35.1 L-19.4 32.6 L-22.5 29.9 L-25.2 26.8 L-27.5 23.6 L-29.4 20.1 L-30.9 16.6 L-31.9 12.9 L-32.6 9.2 L-32.8 5.5 L-32.6 1.9 L-32.1 -1.6 L-31.1 -4.9 L-29.8 -8.1 L-28.2 -11.1 L-26.3 -13.8 L-24.2 -16.2 L-21.9 -18.4 L-19.4 -20.2 L-16.7 -21.7 L-14.0 -22.9 L-11.2 -23.7 L-8.3 -24.2 L-5.5 -24.4 L-2.8 -24.3 L-0.2 -23.8 L2.4 -23.1 L4.7 -22.2 L6.9 -21.0 L8.9 -19.6 L10.6 -18.0 L12.2 -16.3 L13.5 -14.4 L14.5 -12.5 L15.3 -10.5 L15.8 -8.5 L16.1 -6.6 L16.1 -4.6 L16.0 -2.8 L15.6 -1.0 L15.0 0.7 L14.3 2.2 L13.4 3.6 L12.3 4.8 L11.2 5.8 L10.1 6.7 L8.8 7.3 L7.6 7.8 L6.3 8.1 L5.1 8.3 L3.9 8.2 L2.8 8.1 L1.8 7.7 L0.9 7.3 L0.1 6.8 L-0.6 6.1 L-1.1 5.5 L-1.5 4.8" />
+              <g id="cloud" fill="none" stroke="#fffdf6" stroke-width="12" stroke-linecap="round">
+                <use href="#spiral" />
+                <use href="#spiral" transform="translate(46,-20) scale(0.5)" />
+                <use href="#spiral" transform="translate(-44,14) scale(0.66)" />
+              </g>
+            </defs>
+            <g class="cloud" style="--cx: -90px; --cy: -70px; animation-delay: 0s"><use href="#cloud" transform="translate(70,130) scale(2.3)" /></g>
+            <g class="cloud" style="--cx: 70px; --cy: -60px; animation-delay: .06s"><use href="#cloud" transform="translate(470,50) scale(1.9)" /></g>
+            <g class="cloud" style="--cx: 90px; --cy: 40px; animation-delay: .12s"><use href="#cloud" transform="translate(900,110) scale(2.1)" /></g>
+            <g class="cloud" style="--cx: -60px; --cy: 50px; animation-delay: .18s"><use href="#cloud" transform="translate(140,420) scale(1.7)" /></g>
+            <g class="cloud" style="--cx: -40px; --cy: -40px; animation-delay: .24s"><use href="#cloud" transform="translate(600,340) scale(2)" /></g>
+            <g class="cloud" style="--cx: 70px; --cy: 50px; animation-delay: .3s"><use href="#cloud" transform="translate(1010,340) scale(1.8)" /></g>
+            <g class="cloud" style="--cx: -80px; --cy: 60px; animation-delay: .14s"><use href="#cloud" transform="translate(40,640) scale(2)" /></g>
+            <g class="cloud" style="--cx: 40px; --cy: 70px; animation-delay: .2s"><use href="#cloud" transform="translate(420,660) scale(1.6)" /></g>
+            <g class="cloud" style="--cx: 90px; --cy: 80px; animation-delay: .26s"><use href="#cloud" transform="translate(740,640) scale(2.3)" /></g>
+            <g class="cloud" style="--cx: 80px; --cy: 60px; animation-delay: .1s"><use href="#cloud" transform="translate(1100,600) scale(1.7)" /></g>
+          </svg>
+        </div>
+        <div class="cover__veil" aria-hidden="true"></div>
+
         <div class="cover__content">
           <h1 class="cover__title">楚河棋局</h1>
+          <p class="cover__subtitle">楚河汉界 · 以棋会友</p>
 
           <div class="cover__modes" role="tablist" aria-label="对弈模式">
             <button
@@ -739,25 +828,38 @@ onUnmounted(() => {
           </div>
 
           <template v-if="mode === 'ai'">
-            <div class="cover__settings">
-              <label class="cover__field">
-                执色
-                <select v-model="sideChoice">
-                  <option value="red">执红</option>
-                  <option value="black">执黑</option>
-                  <option value="random">随机</option>
-                </select>
-              </label>
-              <label class="cover__field">
-                难度
-                <select v-model="aiLevel">
-                  <option value="beginner">入门</option>
-                  <option value="normal">普通</option>
-                  <option value="hard">困难</option>
-                  <option value="expert">专家</option>
-                </select>
-              </label>
-            </div>
+            <section class="cover__settings" aria-label="对局设置">
+              <div class="cover__setting">
+                <span class="cover__setting-label">执色</span>
+                <div class="cover__seg" role="group" aria-label="执色">
+                  <button
+                    v-for="o in SIDE_OPTIONS"
+                    :key="o.value"
+                    type="button"
+                    :class="{ active: sideChoice === o.value }"
+                    @click="sideChoice = o.value"
+                  >{{ o.label }}</button>
+                </div>
+              </div>
+              <div class="cover__setting">
+                <span class="cover__setting-label">难度</span>
+                <div class="cover__levels" role="radiogroup" aria-label="电脑难度">
+                  <button
+                    v-for="o in AI_LEVEL_OPTIONS"
+                    :key="o.value"
+                    type="button"
+                    class="cover__level"
+                    :class="{ active: aiLevel === o.value }"
+                    :aria-checked="aiLevel === o.value"
+                    role="radio"
+                    @click="aiLevel = o.value"
+                  >
+                    <span class="cover__level-name">{{ o.label }}</span>
+                    <span class="cover__level-desc">{{ o.desc }}</span>
+                  </button>
+                </div>
+              </div>
+            </section>
             <button class="cover__start" type="button" @click="onStart">开始对弈</button>
           </template>
 
@@ -834,7 +936,7 @@ onUnmounted(() => {
           </div>
         </header>
 
-        <main class="board-wrap">
+        <main ref="boardWrapEl" class="board-wrap">
           <div class="board" ref="boardEl">
             <img class="board__img" src="/assets/xiangqi/board.svg" alt="棋盘" draggable="false" />
 
@@ -883,52 +985,153 @@ onUnmounted(() => {
 .game {
   max-width: 720px;
   margin: 0 auto;
-  padding: 16px;
+  padding: 12px 16px 16px;
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
 
 /* 封面 */
 .cover {
   position: fixed;
   inset: 0;
-  background: #f7f1e6;
+  background: #f5cf94;
   overflow: hidden;
   display: flex;
   align-items: center;
   padding-left: clamp(40px, 12vw, 160px);
 }
 
-.cover__art {
+.cover__bg {
   position: absolute;
-  right: 0;
-  bottom: 0;
+  inset: -24px;
+  pointer-events: none;
+  transform: translate(calc(var(--px, 0) * -12px), calc(var(--py, 0) * -8px));
+  will-change: transform;
+}
+
+.cover__art {
   width: 100%;
   height: 100%;
   object-fit: cover;
   pointer-events: none;
   transition: opacity 450ms ease, filter 450ms ease;
+  animation: cover-bg-in 1.3s cubic-bezier(0.25, 0.6, 0.3, 1) 0.15s both;
 }
 
 .cover__wash {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(120% 90% at 85% 100%, rgba(120, 110, 95, 0.16), rgba(120, 110, 95, 0) 60%),
-    linear-gradient(to top, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 55%);
+    linear-gradient(90deg, rgba(250, 236, 205, 0.9) 0%, rgba(250, 236, 205, 0.6) 34%, rgba(250, 236, 205, 0) 62%),
+    radial-gradient(120% 90% at 85% 100%, rgba(120, 110, 95, 0.14), rgba(120, 110, 95, 0) 60%),
+    linear-gradient(to top, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0) 55%);
   pointer-events: none;
   transition: opacity 450ms ease;
 }
 
+/* 祥云层：开局笼罩全屏，1s 内散开淡出 */
+.cover__clouds {
+  position: absolute;
+  inset: -30px;
+  z-index: 1;
+  pointer-events: none;
+  transform: translate(calc(var(--px, 0) * -20px), calc(var(--py, 0) * -14px));
+}
+
+.cover__clouds svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.cover__clouds .cloud {
+  opacity: 1;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: cloud-out 1.05s cubic-bezier(0.35, 0.45, 0.45, 1) both;
+}
+
+@keyframes cloud-out {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--cx, 60px), var(--cy, -40px)) scale(1.45);
+  }
+}
+
+/* 白雾幕：与祥云一起退去，露出背景 */
+.cover__veil {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background:
+    radial-gradient(60% 55% at 32% 18%, rgba(255, 252, 244, 0.95), rgba(255, 252, 244, 0.62) 62%, rgba(255, 252, 244, 0.25) 100%),
+    linear-gradient(180deg, #fffaf0, #f9eed7);
+  pointer-events: none;
+  animation: veil-out 1.05s ease-out 0.12s both;
+}
+
+@keyframes veil-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes cover-bg-in {
+  from {
+    opacity: 0;
+    transform: scale(1.06);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .cover__content {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 36px;
+  gap: 24px;
+  transform: translate(calc(var(--px, 0) * 10px), calc(var(--py, 0) * 7px));
+  will-change: transform;
+}
+
+/* UI 与文字在祥云散去后逐项浮现 */
+.cover__content > * {
+  opacity: 0;
+  animation: cover-rise 0.65s cubic-bezier(0.21, 0.65, 0.32, 1) both;
+}
+
+.cover__content > :nth-child(1) { animation-delay: 0.55s; }
+.cover__content > :nth-child(2) { animation-delay: 0.67s; }
+.cover__content > :nth-child(3) { animation-delay: 0.79s; }
+.cover__content > :nth-child(4) { animation-delay: 0.91s; }
+.cover__content > :nth-child(5) { animation-delay: 1.03s; }
+
+@keyframes cover-rise {
+  from {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .cover__title {
-  font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: clamp(44px, 8vw, 76px);
   font-weight: 700;
   letter-spacing: 10px;
@@ -936,25 +1139,124 @@ onUnmounted(() => {
   color: #2c2c2c;
 }
 
+.cover__subtitle {
+  font-size: 15px;
+  letter-spacing: 6px;
+  color: #6b5a3e;
+  margin: 0;
+}
+
 .cover__settings {
   display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: stretch;
+}
+
+.cover__setting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.cover__setting-label {
+  font-size: 13px;
+  letter-spacing: 4px;
+  color: #6b5a3e;
+}
+
+.cover__seg {
+  display: flex;
+  gap: 8px;
+}
+
+.cover__seg button {
+  font-size: 14px;
+  letter-spacing: 2px;
+  padding: 7px 20px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid #b8a888;
+  border-radius: 999px;
+  color: #3d362c;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.cover__seg button:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.cover__seg button.active {
+  background: #a93226;
+  border-color: #8f2a1f;
+  color: #fff;
+}
+
+.cover__seg button:focus-visible {
+  outline: 2px solid #8f2a1f;
+  outline-offset: 2px;
+}
+
+.cover__levels {
+  display: flex;
   flex-wrap: wrap;
-  gap: 20px 32px;
-  align-items: center;
+  gap: 10px;
+}
+
+.cover__level {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 108px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid #b8a888;
+  border-radius: 8px;
+  color: #3d362c;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+
+.cover__level:hover {
+  background: rgba(255, 255, 255, 0.75);
+  transform: translateY(-2px);
+}
+
+.cover__level.active {
+  background: #a93226;
+  border-color: #8f2a1f;
+  color: #fff;
+}
+
+.cover__level:focus-visible {
+  outline: 2px solid #8f2a1f;
+  outline-offset: 2px;
+}
+
+.cover__level-name {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+
+.cover__level-desc {
+  font-size: 11px;
+  letter-spacing: 1px;
+  opacity: 0.78;
 }
 
 .cover__field {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: 15px;
   letter-spacing: 2px;
   color: #4a443c;
 }
 
 .cover__field select {
-  font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: 14px;
   letter-spacing: 1px;
   padding: 6px 10px;
@@ -970,7 +1272,6 @@ onUnmounted(() => {
 }
 
 .cover__start {
-  font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: 18px;
   letter-spacing: 6px;
   color: #fff;
@@ -988,7 +1289,7 @@ onUnmounted(() => {
 }
 
 .cover__start:active {
-  transform: translateY(2px) scale(0.98);
+  filter: brightness(0.88);
 }
 
 .cover__start:focus-visible {
@@ -1017,7 +1318,6 @@ onUnmounted(() => {
 }
 
 .cover__modes button {
-  font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: 15px;
   letter-spacing: 3px;
   padding: 8px 22px;
@@ -1058,7 +1358,6 @@ onUnmounted(() => {
 }
 
 .cover__panel-title {
-  font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 4px;
@@ -1067,7 +1366,6 @@ onUnmounted(() => {
 }
 
 .cover__code {
-  font-family: 'Noto Serif SC', 'SimSun', serif;
   font-size: 16px;
   letter-spacing: 4px;
   padding: 8px 12px;
@@ -1114,6 +1412,7 @@ onUnmounted(() => {
 }
 
 .cover-leave-active .cover__art {
+  animation: none;
   opacity: 0.25;
   filter: blur(10px);
 }
@@ -1142,12 +1441,32 @@ onUnmounted(() => {
     text-align: center;
   }
 
-  .cover__settings {
+  .cover__setting,
+  .cover__seg,
+  .cover__levels {
+    align-items: center;
     justify-content: center;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .cover__art,
+  .cover__clouds .cloud,
+  .cover__veil,
+  .cover__content > * {
+    animation: none;
+  }
+
+  .cover__clouds,
+  .cover__veil {
+    opacity: 0;
+  }
+
+  .cover__content > * {
+    opacity: 1;
+    transform: none;
+  }
+
   .cover-leave-active {
     transition: opacity 120ms ease;
   }
@@ -1177,6 +1496,7 @@ onUnmounted(() => {
 
 .header {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 12px;
@@ -1247,8 +1567,11 @@ onUnmounted(() => {
 }
 
 .board-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   justify-content: center;
+  align-items: center;
 }
 
 .board {
@@ -1256,6 +1579,7 @@ onUnmounted(() => {
   width: min(92vw, 600px);
   aspect-ratio: 600 / 660;
   user-select: none;
+  flex: none;
 }
 
 .board__img {
