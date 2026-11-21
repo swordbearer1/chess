@@ -794,7 +794,12 @@ onUnmounted(() => {
         <div class="cover__wash" aria-hidden="true"></div>
 
         <div class="cover__clouds" aria-hidden="true">
-          <img class="clouds__img" src="/assets/xiangqi/clouds.png" alt="" draggable="false" />
+          <img class="clouds__cloud clouds__cloud--1" src="/assets/xiangqi/clouds/cloud-1.png" alt="" draggable="false" />
+          <img class="clouds__cloud clouds__cloud--2" src="/assets/xiangqi/clouds/cloud-2.png" alt="" draggable="false" />
+          <img class="clouds__cloud clouds__cloud--3" src="/assets/xiangqi/clouds/cloud-3.png" alt="" draggable="false" />
+          <img class="clouds__cloud clouds__cloud--4" src="/assets/xiangqi/clouds/cloud-4.png" alt="" draggable="false" />
+          <img class="clouds__cloud clouds__cloud--5" src="/assets/xiangqi/clouds/cloud-5.png" alt="" draggable="false" />
+          <img class="clouds__cloud clouds__cloud--6" src="/assets/xiangqi/clouds/cloud-6.png" alt="" draggable="false" />
         </div>
 
         <div class="cover__content">
@@ -1030,7 +1035,7 @@ onUnmounted(() => {
   object-fit: cover;
   pointer-events: none;
   transition: opacity 450ms ease, filter 450ms ease;
-  animation: cover-bg-in 1.3s cubic-bezier(0.25, 0.6, 0.3, 1) 0.15s both;
+  animation: cover-bg-in 2s cubic-bezier(0.25, 0.6, 0.3, 1) 0.1s both;
 }
 
 .cover__wash {
@@ -1044,31 +1049,46 @@ onUnmounted(() => {
   transition: opacity 450ms ease;
 }
 
-/* 祥云层：开局以祥云图笼罩全屏，1s 内散开淡出 */
+/* 祥云层：6 朵独立祥云在封面中央交叠，约 2s 内向左右及斜向飘散（拨云见日） */
 .cover__clouds {
   position: absolute;
-  inset: -30px;
+  inset: 0;
   z-index: 1;
   pointer-events: none;
+  overflow: hidden;
   transform: translate(calc(var(--px, 0) * -20px), calc(var(--py, 0) * -14px));
 }
 
-.clouds__img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  animation: clouds-out 1.05s cubic-bezier(0.35, 0.45, 0.45, 1) both;
+.clouds__cloud {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  will-change: transform, opacity;
+  animation-name: cloud-drift;
+  animation-timing-function: cubic-bezier(0.4, 0.05, 0.3, 1);
+  animation-fill-mode: both;
 }
 
-@keyframes clouds-out {
+/* 初始位置错落交叠在中央；--dx/--dy 为飘散方向（左/右、上/下略有偏移） */
+.clouds__cloud--1 { left: 36%; top: 46%; --dx: -44vw; --dy: -8vh; animation-duration: 1.7s; animation-delay: 0s; }
+.clouds__cloud--2 { left: 46%; top: 38%; --dx: -52vw; --dy: -22vh; animation-duration: 1.9s; animation-delay: 0.12s; }
+.clouds__cloud--3 { left: 42%; top: 58%; --dx: -38vw; --dy: 26vh; animation-duration: 1.5s; animation-delay: 0.24s; }
+.clouds__cloud--4 { left: 54%; top: 44%; --dx: 46vw; --dy: 4vh; animation-duration: 1.8s; animation-delay: 0.06s; }
+.clouds__cloud--5 { left: 62%; top: 34%; --dx: 54vw; --dy: -20vh; animation-duration: 1.6s; animation-delay: 0.18s; }
+.clouds__cloud--6 { left: 58%; top: 56%; --dx: 42vw; --dy: 24vh; animation-duration: 1.5s; animation-delay: 0.3s; }
+
+@keyframes cloud-drift {
   0% {
+    transform: translate(-50%, -50%) scale(1);
     opacity: 1;
-    transform: scale(1) translateY(0);
+  }
+  55% {
+    opacity: 0.92;
   }
   100% {
+    transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(1.06);
     opacity: 0;
-    transform: scale(1.14) translateY(-2%);
   }
 }
 
@@ -1100,11 +1120,11 @@ onUnmounted(() => {
   animation: cover-rise 0.65s cubic-bezier(0.21, 0.65, 0.32, 1) both;
 }
 
-.cover__content > :nth-child(1) { animation-delay: 0.55s; }
-.cover__content > :nth-child(2) { animation-delay: 0.67s; }
-.cover__content > :nth-child(3) { animation-delay: 0.79s; }
-.cover__content > :nth-child(4) { animation-delay: 0.91s; }
-.cover__content > :nth-child(5) { animation-delay: 1.03s; }
+.cover__content > :nth-child(1) { animation-delay: 1.2s; }
+.cover__content > :nth-child(2) { animation-delay: 1.32s; }
+.cover__content > :nth-child(3) { animation-delay: 1.44s; }
+.cover__content > :nth-child(4) { animation-delay: 1.56s; }
+.cover__content > :nth-child(5) { animation-delay: 1.68s; }
 
 @keyframes cover-rise {
   from {
@@ -1437,7 +1457,7 @@ onUnmounted(() => {
 
 @media (prefers-reduced-motion: reduce) {
   .cover__art,
-  .clouds__img,
+  .clouds__cloud,
   .cover__content > * {
     animation: none;
   }
